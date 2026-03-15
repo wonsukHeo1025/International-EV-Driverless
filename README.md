@@ -1,6 +1,5 @@
 # 제4회 국제 대학생 EV 자율주행 대회 1/5부문
 
-![KakaoTalk_20250719_171758370](https://github.com/user-attachments/assets/b36175fc-826d-460e-8fbc-186d31eb8bc5)
 
 
 ## 개요
