@@ -79,14 +79,6 @@ GPS + Obstacle Avoidance
 - 제어 부드러움 Cost: 직전 최적 조향각 대비 얼마나 급격히 변하는지 평가
 - 종합 비용이 가장 낮은 경로를 최적 회피 경로로 선택한 뒤 Pure Pursuit로 최종 조향 명령 생성
 
-#### 실제 구현 코드 매핑
-
-| 단계 | 실제 코드 | 구현 포인트 |
-|---|---|---|
-| Step 1 | [`control/gps/mission_control.py`](./control/gps/mission_control.py), [`control/gps/mpc.py`](./control/gps/mpc.py) | `latlon_to_local_xy()`, `transform_to_vehicle_frame()`, `timer_callback()`에서 GPS 경로를 차량 기준으로 로컬화하고, `cb_marker()`에서 `base_radius`를 이용해 장애물 각도 범위를 확장 |
-| Step 2 | [`control/gps/mpc.py`](./control/gps/mpc.py) | `BIN_EDGES`, `cb_marker()`, `gaussian_filter1d`, `cost_obs()`로 1차원 Cost Map 생성 및 예측 경로 위험도 평가 |
-| Step 3 | [`control/gps/mpc.py`](./control/gps/mpc.py) | `run_mpc()`, `sim_path()`, `cost_gps()`, `pure_pursuit()`로 조향각 시나리오 탐색, 비용함수 평가, 최적 회피 경로 선택 및 추종 수행 |
-
 
 
 ## 저장소 구조
