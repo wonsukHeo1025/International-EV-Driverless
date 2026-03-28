@@ -19,9 +19,7 @@
 | GPS Path Localization | [`control/gps/mission_control.py`](./control/gps/mission_control.py) | CSV 기반 GPS waypoint를 로컬 XY로 변환하고, 실시간 GNSS 위치와 heading을 이용해 차량 중심 상대 좌표계로 재투영하여 `/gps_path`를 생성 |
 | GPS Obstacle Avoidance | [`control/gps/mpc.py`](./control/gps/mpc.py) | LiDAR 장애물 포인트에 C-Space 기반 반경 확장을 적용하고, 1차원 각도 Cost Map을 생성한 뒤 MPC 기반 비용함수로 최적 회피 경로를 선택 |
 
-## 시스템 목표
-
-제가 맡은 모듈 기준으로 이 시스템은 다음 흐름을 수행하도록 설계되었습니다.
+## 주요 기능
 
 Lane
 - 전방 카메라 영상에서 좌/우 차선을 추출
@@ -45,7 +43,6 @@ GPS + Obstacle Avoidance
 ### 1. Lane 패키지 전체 구현
 
 - 커스텀 YOLO 기반 차선 세그멘테이션 파이프라인 구현
-- 전통적 영상처리 기반 차선 검출 파이프라인 구현
 - Bird's Eye View 변환으로 차선 geometry를 정규화
 - DBSCAN, RANSAC, Kalman filter 기반으로 노이즈와 순간 검출 실패를 완화
 - 좌/우 차선이 모두 있을 때는 중앙선 생성
@@ -59,7 +56,7 @@ GPS + Obstacle Avoidance
 
 ### 3. GPS + 장애물 구간 자율주행 구현
 
-- 이 기능은 [`control/gps/mission_control.py`](./control/gps/mission_control.py)와 [`control/gps/mpc.py`](./control/gps/mpc.py)가 함께 동작하며, 실제 구현 흐름은 아래 3단계로 나뉩니다.
+- 이 기능의 흐름은 아래 3단계로 나뉩니다.
 
 #### Step 1. 전역 경로의 로컬화 + 장애물 크기 확대
 
