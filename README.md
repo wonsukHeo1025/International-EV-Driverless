@@ -4,10 +4,11 @@
 
 ## 개요
 
-담당: lane 패키지 전체 + my_lane_msgs 패키지 전체 + GPS 절대 경로와 LiDAR 상대 객체를 같은 좌표계에 align하는 로직
+담당: `lane` 패키지 전체 + `my_lane_msgs` 패키지 전체 + GPS 전역 경로 로컬화, LiDAR 장애물 Cost Map 생성, MPC 기반 회피 경로 탐색 로직
 
-이 README는 직접 구현한 [`lane`](./lane) 패키지 전체, [`my_lane_msgs`](./my_lane_msgs) 패키지 전체, 그리고 [`control/gps/mission_control.py`](./control/gps/mission_control.py) 내 GPS-LiDAR 좌표계 통합 로직을 설명하기 위한 문서입니다.  
-`point_cloud_processor`, `mpc.py`, `selector_mpc.py`, Arduino 제어부는 프로젝트에는 포함되지만 제 담당 범위는 아니므로 여기서는 제 모듈과 맞물리는 인터페이스 중심으로만 설명합니다.
+이 README는 직접 구현한 [`lane`](./lane) 패키지 전체, [`my_lane_msgs`](./my_lane_msgs) 패키지 전체, [`control/gps/mission_control.py`](./control/gps/mission_control.py), [`control/gps/mpc.py`](./control/gps/mpc.py)를 설명하기 위한 문서입니다.  
+`point_cloud_processor`의 LiDAR 전처리/클러스터 생성, [`control/selector_mpc.py`](./control/selector_mpc.py), Arduino 제어부는 프로젝트에는 포함되지만 제 담당 범위는 아니므로 여기서는 제 모듈과 맞물리는 인터페이스 중심으로만 설명합니다.  
+즉, LiDAR 장애물을 "검출"하는 부분보다는, 검출된 `/cluster_markers`를 받아 GPS 경로와 결합하고 회피 경로를 생성하는 자율주행 로직이 제 구현 범위입니다.
 
 ## 담당 범위
 
@@ -15,7 +16,8 @@
 |---|---|---|
 | Lane Perception | [`lane`](./lane) | 카메라 기반 차선 검출, BEV 변환, DBSCAN/RANSAC/Sliding Window/Kalman 기반 차선 포인트 추출, 차선 중심 경로 생성, Pure Pursuit 기반 차선 조향각 계산 |
 | ROS 2 Interface | [`my_lane_msgs`](./my_lane_msgs) | 좌/우 차선 좌표 전달을 위한 `LanePoints.msg` 인터페이스 설계 및 패키지 구성 |
-| Frame Integration | [`control/gps/mission_control.py`](./control/gps/mission_control.py) | GPS 절대 좌표 waypoint를 로컬 XY로 변환하고 차량 기준 상대 좌표로 재투영하여, LiDAR 클러스터 객체와 동일한 `velodyne` 기준 좌표계에서 경로를 시각화 및 활용 가능하도록 구성 |
+| GPS Path Localization | [`control/gps/mission_control.py`](./control/gps/mission_control.py) | CSV 기반 GPS waypoint를 로컬 XY로 변환하고, 실시간 GNSS 위치와 heading을 이용해 차량 중심 상대 좌표계로 재투영하여 `/gps_path`를 생성 |
+| GPS Obstacle Avoidance | [`control/gps/mpc.py`](./control/gps/mpc.py) | LiDAR 장애물 포인트에 C-Space 기반 반경 확장을 적용하고, 1차원 각도 Cost Map을 생성한 뒤 MPC 기반 비용함수로 최적 회피 경로를 선택 |
 
 ## 시스템 목표
 
@@ -27,11 +29,14 @@ Lane
 - 생성된 경로에서 look-ahead target을 선택해 조향각을 계산
 - 차선 검출 여부를 함께 발행해 lane 주행과 GPS 주행 전환에 활용
 
-GPS-LiDAR Frame Integration
+GPS + Obstacle Avoidance
 - CSV 기반 GPS 절대 경로를 로컬 XY 좌표계로 변환
 - GNSS 위치와 course heading을 이용해 waypoint를 차량 기준 상대 좌표로 변환
 - 변환된 경로를 velodyne 프레임 기준 /gps_path로 발행
-- LiDAR에서 검출된 상대 좌표 장애물 마커와 같은 좌표계에서 경로를 겹쳐 표시하고 MPC 입력으로 연결
+- LiDAR에서 검출된 상대 좌표 장애물 마커(`/cluster_markers`)를 받아 C-Space 기반으로 장애물 점유 각도를 확장
+- 확장된 장애물 각도 분포를 1차원 Cost Map으로 만들고 Gaussian filter로 주변 위험도까지 반영
+- 여러 조향각 시나리오를 예측하고 장애물 Cost, GPS 경로 이탈 Cost, 조향 변화 Cost를 합산해 최적 회피 경로를 선택
+- 선택된 회피 경로를 Pure Pursuit로 추종해 최종 GPS+장애물 구간 조향 명령으로 연결
 
 
 
@@ -52,14 +57,38 @@ GPS-LiDAR Frame Integration
 
 - 좌/우 차선 포인트를 각각 left_x, left_y, right_x, right_y 배열로 전달
 
-### 3. GPS 경로와 LiDAR 객체의 동일 좌표계 정렬
+### 3. GPS + 장애물 구간 자율주행 구현
 
-- GNSS waypoint CSV를 기준으로 origin 설정
-- 위도/경도를 로컬 XY로 변환해 절대 경로를 평면 좌표계로 투영
-- 실시간 GNSS 위치와 heading을 사용해 waypoint를 차량 기준 상대 좌표로 변환
-- 변환된 GPS 경로를 토픽으로 퍼블리시
-- 변환된 GPS 경로 토픽의 frame_id 를 velodyne으로 맞춰 LiDAR 클러스터 마커와 동일 좌표계에 배치
-- 결과적으로 RViz와 MPC에서 전역 경로와 상대 장애물을 동시에 다룰 수 있도록 처리
+- 이 기능은 [`control/gps/mission_control.py`](./control/gps/mission_control.py)와 [`control/gps/mpc.py`](./control/gps/mpc.py)가 함께 동작하며, 실제 구현 흐름은 아래 3단계로 나뉩니다.
+
+#### Step 1. 전역 경로의 로컬화 + 장애물 크기 확대
+
+- GPS 기반 전역 waypoint를 로컬 XY 평면으로 변환한 뒤, 차량의 현재 GNSS 위치와 heading을 기준으로 차량 중심 상대 좌표계로 재투영
+- `/gps_path`를 `velodyne` 기준으로 발행해 LiDAR 장애물과 동일 좌표계에서 경로를 다룰 수 있도록 구성
+- LiDAR 클러스터 장애물 포인트마다 `base_radius`를 적용해 C-Space 개념으로 점유 각도를 확장
+
+#### Step 2. Cost Map 생성
+
+- 확장된 장애물이 차지하는 각도 구간을 기준으로 1차원 angular histogram 형태의 Cost Map 생성
+- `gaussian_filter1d`를 적용해 특정 방향뿐 아니라 그 주변 방향의 위험도까지 함께 반영
+- 생성된 Cost Map은 이후 예측 경로가 어느 방향으로 지나가는지 평가하는 장애물 Cost의 기준으로 사용
+
+#### Step 3. 모델 예측 제어 기반 회피 경로 탐색
+
+- 여러 가상의 조향각 후보를 샘플링하고, 각 후보에 대해 horizon 동안의 예측 경로를 시뮬레이션
+- 실제 코드에서는 `cost = w_obs * cost_obs(path) + w_gps * cost_gps(path) + w_smooth * abs(deg - prev_opt_deg)` 형태의 비용함수를 계산
+- 장애물 Cost: Cost Map 상에서 해당 경로가 얼마나 위험한지 평가
+- 경로 이탈 Cost: 원래 GPS 경로에서 얼마나 벗어나는지 평가
+- 제어 부드러움 Cost: 직전 최적 조향각 대비 얼마나 급격히 변하는지 평가
+- 종합 비용이 가장 낮은 경로를 최적 회피 경로로 선택한 뒤 Pure Pursuit로 최종 조향 명령 생성
+
+#### 실제 구현 코드 매핑
+
+| 단계 | 실제 코드 | 구현 포인트 |
+|---|---|---|
+| Step 1 | [`control/gps/mission_control.py`](./control/gps/mission_control.py), [`control/gps/mpc.py`](./control/gps/mpc.py) | `latlon_to_local_xy()`, `transform_to_vehicle_frame()`, `timer_callback()`에서 GPS 경로를 차량 기준으로 로컬화하고, `cb_marker()`에서 `base_radius`를 이용해 장애물 각도 범위를 확장 |
+| Step 2 | [`control/gps/mpc.py`](./control/gps/mpc.py) | `BIN_EDGES`, `cb_marker()`, `gaussian_filter1d`, `cost_obs()`로 1차원 Cost Map 생성 및 예측 경로 위험도 평가 |
+| Step 3 | [`control/gps/mpc.py`](./control/gps/mpc.py) | `run_mpc()`, `sim_path()`, `cost_gps()`, `pure_pursuit()`로 조향각 시나리오 탐색, 비용함수 평가, 최적 회피 경로 선택 및 추종 수행 |
 
 
 
@@ -68,8 +97,12 @@ GPS-LiDAR Frame Integration
 ```text
 .
 ├── control
+│   ├── arduino_control.py
+│   ├── selector_mpc.py
 │   └── gps
+│       ├── gps_course_publisher.py
 │       ├── mission_control.py
+│       └── mpc.py
 ├── lane
 │   ├── data
 │   │   └── weights
@@ -88,15 +121,7 @@ GPS-LiDAR Frame Integration
         └── LanePoints.msg
 ```
 
-## 기술 스택
 
-- ROS 2 Humble
-- Python
-- OpenCV
-- Ultralytics YOLO
-- ROS 2 Custom Message Interface
-- GNSS local coordinate transform
-- LiDAR-RViz frame visualization
 
 
 ## 결과 시각화
