@@ -4,11 +4,8 @@
 
 ## 개요
 
-담당: `lane` 패키지 전체 + `my_lane_msgs` 패키지 전체 + GPS 전역 경로 로컬화, LiDAR 장애물 Cost Map 생성, MPC 기반 회피 경로 탐색 로직
+담당: 차량의 차선 주행 로직 + GPS 경로 주행 중 장애물 회피 로직
 
-이 README는 직접 구현한 [`lane`](./lane) 패키지 전체, [`my_lane_msgs`](./my_lane_msgs) 패키지 전체, [`control/gps/mission_control.py`](./control/gps/mission_control.py), [`control/gps/mpc.py`](./control/gps/mpc.py)를 설명하기 위한 문서입니다.  
-`point_cloud_processor`의 LiDAR 전처리/클러스터 생성, [`control/selector_mpc.py`](./control/selector_mpc.py), Arduino 제어부는 프로젝트에는 포함되지만 제 담당 범위는 아니므로 여기서는 제 모듈과 맞물리는 인터페이스 중심으로만 설명합니다.  
-즉, LiDAR 장애물을 "검출"하는 부분보다는, 검출된 `/cluster_markers`를 받아 GPS 경로와 결합하고 회피 경로를 생성하는 자율주행 로직이 제 구현 범위입니다.
 
 ## 담당 범위
 
